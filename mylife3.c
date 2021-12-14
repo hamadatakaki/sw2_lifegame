@@ -1,23 +1,20 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h> // sleep()関数を使う
-#include <string.h>
+#include <time.h>
 
 #define MAX_LINE_LENGTH 256
-
-typedef enum
-{
-    Life106,
-    RLE,
-    RandomInitialize,
-    None,
-} FileType;
+#define GEN_RAND ((rand() / 10) % 10 == 3)
 
 void my_init_cells(const int height, const int width, int cell[height][width], FILE *fp);
+
 void my_print_cells(FILE *fp, int gen, const int height, const int width, int cell[height][width]);
+
 int my_count_adjacent_cells(int h, int w, const int height, const int width, int cell[height][width]);
+
 void my_update_cells(const int height, const int width, int cell[height][width]);
-FileType eval_file_type(char *filename);
+
+void my_logging_cells(FILE *fp, const int height, const int width, int cell[height][width]);
 
 int main(int argc, char **argv)
 {
@@ -69,35 +66,51 @@ int main(int argc, char **argv)
         my_print_cells(fp, gen, height, width, cell); // 表示する
         sleep(1);                                     //1秒休止する
         fprintf(fp, "\e[%dA", height + 3);            //height+3 の分、カーソルを上に戻す(壁2、表示部1)
+
+        if (gen < 10000 && gen % 100 == 0)
+        {
+            char path[12];
+            sprintf(path, "gen%04d.lif", gen);
+            FILE *cell_log_fp = fopen(path, "w");
+            fprintf(cell_log_fp, "#Life 1.06\n");
+            my_logging_cells(cell_log_fp, height, width, cell);
+            fclose(cell_log_fp);
+        }
     }
 
     return EXIT_SUCCESS;
 }
 
-void my_init_cells(const int height, const int width, int cell[height][width], FILE *fp)
+void _init_cells_as_fp(const int height, const int width, int cell[height][width], FILE *fp)
 {
-    int use_default = 0;
-    if (fp == NULL)
-    {
-        use_default = 1;
-        fp = fopen("default.lif", "r");
-    }
-
-    int *x, *y;
+    int x, y;
     char line[MAX_LINE_LENGTH];
 
     fgets(line, MAX_LINE_LENGTH, fp);
     while (!feof(fp))
     {
-
         fgets(line, MAX_LINE_LENGTH, fp);
-        sscanf(line, "%d %d\n", x, y);
-        cell[*y][*x] = 1;
+        sscanf(line, "%d %d\n", &x, &y);
+        cell[y][x] = 1;
     }
+}
 
-    if (use_default)
+void my_init_cells(const int height, const int width, int cell[height][width], FILE *fp)
+{
+    if (fp == NULL)
     {
-        fclose(fp);
+        srand((unsigned)time(NULL));
+        for (int i = 0; i < height; i++)
+        {
+            for (int j = 0; j < width; j++)
+            {
+                cell[i][j] = GEN_RAND;
+            }
+        }
+    }
+    else
+    {
+        _init_cells_as_fp(height, width, cell, fp);
     }
 }
 
@@ -121,27 +134,29 @@ void _print_cell_line(FILE *fp, const int width, int cell[width])
     fprintf(fp, "|\n");
 }
 
+int _count_up_cells(const int height, const int width, int cell[height][width])
+{
+    int total = 0;
+    for (int i = 0; i < height; i++)
+    {
+        for (int j = 0; j < width; j++)
+        {
+            total += cell[i][j];
+        }
+    }
+    return total;
+}
+
 void my_print_cells(FILE *fp, int gen, const int height, const int width, int cell[height][width])
 {
-    printf("generateion = %d\n", gen);
+    int c = _count_up_cells(height, width, cell);
+    printf("generateion = %d, life rate: %d / %d\n", gen, c, height * width);
     _print_cell_horizontal_edge(fp, width);
     for (int i = 0; i < height; i++)
     {
         _print_cell_line(fp, width, cell[i]);
     }
     _print_cell_horizontal_edge(fp, width);
-}
-
-void debug_cells(FILE *fp, const int height, const int width, int cell[height][width])
-{
-    for (int i = 0; i < height; i++)
-    {
-        for (int j = 0; j < width; j++)
-        {
-            fprintf(fp, "%d", cell[i][j]);
-        }
-        fprintf(fp, "\n");
-    }
 }
 
 int my_count_adjacent_cells(int h, int w, const int height, const int width, int cell[height][width])
@@ -209,23 +224,16 @@ void my_update_cells(const int height, const int width, int cell[height][width])
     }
 }
 
-FileType eval_file_type(char *filename)
+void my_logging_cells(FILE *fp, const int height, const int width, int cell[height][width])
 {
-    int size = strlen(filename);
-    char c1 = filename[size - 3];
-    char c2 = filename[size - 2];
-    char c3 = filename[size - 1];
-
-    if (c1 == 'l' && c2 == 'I' && c3 == 'f')
+    for (int i = 0; i < height; i++)
     {
-        return Life106;
-    }
-    else if (c1 == 'r' && c2 == 'l' && c3 == 'e')
-    {
-        return RLE;
-    }
-    else
-    {
-        return None;
+        for (int j = 0; j < width; j++)
+        {
+            if (cell[i][j])
+            {
+                fprintf(fp, "%d %d\n", j, i);
+            }
+        }
     }
 }
