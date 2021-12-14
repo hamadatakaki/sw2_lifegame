@@ -2,23 +2,31 @@
 #include <stdlib.h>
 #include <unistd.h> // sleep()関数を使う
 #include <time.h>
+#include <string.h>
 
 #define MAX_LINE_LENGTH 256
 #define GEN_RAND ((rand() / 10) % 10 == 3)
 
-void my_init_cells(const int height, const int width, int cell[height][width], FILE *fp);
+typedef enum
+{
+    Life106,
+    RLE,
+    RandomInitialize,
+    None,
+} FileType;
 
+void my_init_cells(const int height, const int width, int cell[height][width], FILE *fp, FileType ftype);
 void my_print_cells(FILE *fp, int gen, const int height, const int width, int cell[height][width]);
-
 int my_count_adjacent_cells(int h, int w, const int height, const int width, int cell[height][width]);
-
 void my_update_cells(const int height, const int width, int cell[height][width]);
-
 void my_logging_cells(FILE *fp, const int height, const int width, int cell[height][width]);
+
+FileType eval_file_type(char *filename);
 
 int main(int argc, char **argv)
 {
     FILE *fp = stderr;
+    FileType ftype;
     const int height = 40;
     const int width = 70;
 
@@ -42,7 +50,8 @@ int main(int argc, char **argv)
         FILE *lgfile;
         if ((lgfile = fopen(argv[1], "r")) != NULL)
         {
-            my_init_cells(height, width, cell, lgfile); // ファイルによる初期化
+            ftype = eval_file_type(argv[1]);
+            my_init_cells(height, width, cell, lgfile, ftype); // ファイルによる初期化
         }
         else
         {
@@ -53,7 +62,7 @@ int main(int argc, char **argv)
     }
     else
     {
-        my_init_cells(height, width, cell, NULL); // デフォルトの初期値を使う
+        my_init_cells(height, width, cell, NULL, RandomInitialize); // デフォルトの初期値を使う
     }
 
     my_print_cells(fp, 0, height, width, cell); // 表示する
@@ -81,7 +90,7 @@ int main(int argc, char **argv)
     return EXIT_SUCCESS;
 }
 
-void _init_cells_as_fp(const int height, const int width, int cell[height][width], FILE *fp)
+void _init_cells_as_lif(const int height, const int width, int cell[height][width], FILE *fp)
 {
     int x, y;
     char line[MAX_LINE_LENGTH];
@@ -95,10 +104,41 @@ void _init_cells_as_fp(const int height, const int width, int cell[height][width
     }
 }
 
-void my_init_cells(const int height, const int width, int cell[height][width], FILE *fp)
+void _parse_rle_header(FILE *fp, int *x, int *y)
 {
-    if (fp == NULL)
+    char line[MAX_LINE_LENGTH];
+    while (1)
     {
+        fgets(line, MAX_LINE_LENGTH, fp);
+        int count = sscanf(line, "x = %d, y = %d\n", x, y);
+        if (count == 2)
+        {
+            break;
+        }
+
+        if (feof(fp))
+        {
+            fprintf(stderr, "faild parsing header.\n");
+            exit(1);
+        }
+    }
+}
+
+void _init_cells_as_rle(const int height, const int width, int cell[height][width], FILE *fp)
+{
+    int x, y;
+    _parse_rle_header(fp, &x, &y);
+    char rle[MAX_LINE_LENGTH];
+    fgets(rle, MAX_LINE_LENGTH, fp);
+
+    // rleに指定された文字が入っているのでいい感じにする
+}
+
+void my_init_cells(const int height, const int width, int cell[height][width], FILE *fp, FileType ftype)
+{
+    switch (ftype)
+    {
+    case RandomInitialize:
         srand((unsigned)time(NULL));
         for (int i = 0; i < height; i++)
         {
@@ -107,10 +147,16 @@ void my_init_cells(const int height, const int width, int cell[height][width], F
                 cell[i][j] = GEN_RAND;
             }
         }
-    }
-    else
-    {
-        _init_cells_as_fp(height, width, cell, fp);
+        break;
+    case Life106:
+        _init_cells_as_lif(height, width, cell, fp);
+        break;
+    case RLE:
+        _init_cells_as_rle(height, width, cell, fp);
+        break;
+    default:
+        fprintf(stderr, "[ERROR] unvalid file type is specified.\n");
+        exit(1);
     }
 }
 
@@ -235,5 +281,26 @@ void my_logging_cells(FILE *fp, const int height, const int width, int cell[heig
                 fprintf(fp, "%d %d\n", j, i);
             }
         }
+    }
+}
+
+FileType eval_file_type(char *filename)
+{
+    int size = strlen(filename);
+    char c1 = filename[size - 3];
+    char c2 = filename[size - 2];
+    char c3 = filename[size - 1];
+
+    if (c1 == 'l' && c2 == 'I' && c3 == 'f')
+    {
+        return Life106;
+    }
+    else if (c1 == 'r' && c2 == 'l' && c3 == 'e')
+    {
+        return RLE;
+    }
+    else
+    {
+        return None;
     }
 }
