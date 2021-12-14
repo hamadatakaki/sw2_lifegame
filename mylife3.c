@@ -1,16 +1,23 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h> // sleep()関数を使う
+#include <string.h>
 
 #define MAX_LINE_LENGTH 256
 
+typedef enum
+{
+    Life106,
+    RLE,
+    RandomInitialize,
+    None,
+} FileType;
+
 void my_init_cells(const int height, const int width, int cell[height][width], FILE *fp);
-
 void my_print_cells(FILE *fp, int gen, const int height, const int width, int cell[height][width]);
-
 int my_count_adjacent_cells(int h, int w, const int height, const int width, int cell[height][width]);
-
 void my_update_cells(const int height, const int width, int cell[height][width]);
+FileType eval_file_type(char *filename);
 
 int main(int argc, char **argv)
 {
@@ -199,5 +206,26 @@ void my_update_cells(const int height, const int width, int cell[height][width])
         {
             cell[i][j] = update_cell[i][j];
         }
+    }
+}
+
+FileType eval_file_type(char *filename)
+{
+    int size = strlen(filename);
+    char c1 = filename[size - 3];
+    char c2 = filename[size - 2];
+    char c3 = filename[size - 1];
+
+    if (c1 == 'l' && c2 == 'I' && c3 == 'f')
+    {
+        return Life106;
+    }
+    else if (c1 == 'r' && c2 == 'l' && c3 == 'e')
+    {
+        return RLE;
+    }
+    else
+    {
+        return None;
     }
 }
