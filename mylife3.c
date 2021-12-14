@@ -3,8 +3,10 @@
 #include <unistd.h> // sleep()関数を使う
 #include <time.h>
 #include <string.h>
+#include <assert.h>
 
 #define MAX_LINE_LENGTH 256
+#define MAX_TOKEN_LENGTH 256
 #define GEN_RAND ((rand() / 10) % 10 == 3)
 
 typedef enum
@@ -22,6 +24,33 @@ void my_update_cells(const int height, const int width, int cell[height][width])
 void my_logging_cells(FILE *fp, const int height, const int width, int cell[height][width]);
 
 FileType eval_file_type(char *filename);
+
+typedef enum
+{
+    RLETokenBreak = 'b',
+    RLETokenNum = 'n',
+    RLETokenCellType = 'c',
+    RLETokenEOC = 'e' // End of code
+} RLETokenType;
+
+typedef struct rle_token
+{
+    RLETokenType token_type;
+    int cell_type; // 0 is dead, 1 is alive.
+    int num;
+} RLEToken;
+
+typedef struct rle_tokenizer
+{
+    int is_tokenized;
+    int token_size;
+    char code[MAX_LINE_LENGTH];
+    RLEToken *tokens[MAX_TOKEN_LENGTH];
+} RLETokenizer;
+
+RLEToken *new_token(RLETokenType token_type, int cell_type, int num);
+RLETokenizer *new_tokenizer(const char code[MAX_LINE_LENGTH]);
+void tokenize(RLETokenizer *tokenizer);
 
 int main(int argc, char **argv)
 {
@@ -124,14 +153,71 @@ void _parse_rle_header(FILE *fp, int *x, int *y)
     }
 }
 
+int _extract_number_from_token(RLEToken *tk)
+{
+    return tk == NULL ? 1 : tk->num;
+}
+
+void _fill_cells_as_rle(int x, int y, const int height, const int width, int cell[height][width], char rle[MAX_LINE_LENGTH])
+{
+    RLETokenizer *lexer = new_tokenizer(rle);
+    tokenize(lexer);
+
+    int w = 0;
+    int h = 0;
+
+    int i = 0;
+    int n = 0;
+
+    RLEToken *tk, *num_tk;
+    num_tk = NULL;
+    while (i < lexer->token_size)
+    {
+        tk = lexer->tokens[i];
+        switch (tk->token_type)
+        {
+        case RLETokenBreak:
+            w = 0;
+            h += _extract_number_from_token(num_tk);
+            num_tk = NULL;
+            break;
+        case RLETokenNum:
+            num_tk = tk;
+            break;
+        case RLETokenCellType:
+            n = _extract_number_from_token(num_tk);
+            if (tk->cell_type)
+            {
+                for (int j = 0; j < n; j++)
+                {
+                    cell[h][w + j] = 1;
+                }
+            }
+            w += n;
+            num_tk = NULL;
+            break;
+        case RLETokenEOC:
+            return;
+        }
+        i++;
+    }
+}
+
 void _init_cells_as_rle(const int height, const int width, int cell[height][width], FILE *fp)
 {
     int x, y;
     _parse_rle_header(fp, &x, &y);
+
+    assert((0 < x) && (x < width) && (0 < y) && (y < height));
+
     char rle[MAX_LINE_LENGTH];
     fgets(rle, MAX_LINE_LENGTH, fp);
 
+    int size = strlen(rle);
+    rle[size - 1] = '\0';
+
     // rleに指定された文字が入っているのでいい感じにする
+    _fill_cells_as_rle(x, y, height, width, cell, rle);
 }
 
 void my_init_cells(const int height, const int width, int cell[height][width], FILE *fp, FileType ftype)
@@ -303,4 +389,109 @@ FileType eval_file_type(char *filename)
     {
         return None;
     }
+}
+
+RLEToken *new_token(RLETokenType token_type, int cell_type, int num)
+{
+    RLEToken *tk = (RLEToken *)malloc(sizeof(RLEToken));
+    tk->token_type = token_type;
+    switch (token_type)
+    {
+    case RLETokenNum:
+        tk->cell_type = -1;
+        tk->num = num;
+        break;
+    case RLETokenCellType:
+        tk->cell_type = cell_type;
+        tk->num = -1;
+        break;
+    default:
+        tk->cell_type = -1;
+        tk->num = -1;
+        break;
+    }
+    return tk;
+}
+
+RLETokenizer *new_tokenizer(const char code[MAX_LINE_LENGTH])
+{
+    RLETokenizer *lexer = (RLETokenizer *)malloc(sizeof(RLETokenizer));
+    lexer->is_tokenized = 0;
+    lexer->token_size = 0;
+    strcpy(lexer->code, code);
+
+    return lexer;
+}
+
+int _count_integer_length(char code[MAX_LINE_LENGTH], int max_len)
+{
+    int i = 0;
+    int len = 0;
+    while (i < max_len)
+    {
+        char look = code[i];
+        if (!(('0' <= look) && (look <= '9')))
+        {
+            break;
+        }
+        i++;
+    }
+    return i;
+}
+
+void _rec_tokenize(RLETokenizer *lexer, int i, const int L)
+{
+    if (i >= L)
+    {
+        return;
+    }
+
+    RLEToken *tk;
+
+    char look = lexer->code[i];
+    if (('0' <= look) && (look <= '9'))
+    {
+        // look is digit.
+        int int_len = _count_integer_length((lexer->code + i), L - i);
+        char a[int_len + 1];
+        strncpy(a, (lexer->code + i), int_len);
+        a[int_len] = '\0';
+        int num = atoi(a);
+        i += int_len - 1;
+
+        tk = new_token(RLETokenNum, -1, num);
+    }
+    else if (look == 'b')
+    {
+        tk = new_token(RLETokenCellType, 0, -1);
+    }
+    else if (look == 'o')
+    {
+        tk = new_token(RLETokenCellType, 1, -1);
+    }
+    else if (look == '$')
+    {
+        tk = new_token(RLETokenBreak, -1, -1);
+    }
+    else if (look == '!')
+    {
+        tk = new_token(RLETokenEOC, -1, -1);
+    }
+    else
+    {
+        fprintf(stderr, "invalid character is discovered: (%d, %c)\n", i, look);
+        exit(1);
+    }
+
+    lexer->tokens[lexer->token_size++] = tk;
+
+    _rec_tokenize(lexer, i + 1, L);
+}
+
+void tokenize(RLETokenizer *lexer)
+{
+    assert(!lexer->is_tokenized);
+    const int L = strlen(lexer->code);
+    _rec_tokenize(lexer, 0, L);
+    lexer->is_tokenized = 1;
 }
